@@ -1,0 +1,2 @@
+const TMDB_API_KEY = "YOUR TMDB API KEY GOES HERE"
+export default TMDB_API_KEY;
