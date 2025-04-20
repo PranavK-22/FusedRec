@@ -9,64 +9,57 @@ from ncf_model import NCFModel
 from dataset import NCFDataset
 from recommender import get_content_features
 
-#This train_ncf program is for devices that do not support CUDA and would require CPU use,for CUDA based machines refer to train_ncf_CUDA.py
-
-# Device setup 
-device = torch.device('cpu')
+# Check for GPU
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
 
 # Load preprocessed data
-content_features = np.load('data/content_matrix.npy')  # Content feature matrix
-movie_map = pickle.load(open('data/movie_map.pkl', 'rb'))  # Movie ID to index mapping
+content_features = np.load('data/content_matrix.npy')
+movie_map = pickle.load(open('data/movie_map.pkl', 'rb'))
 num_movies = len(movie_map)
-
-# Load ratings: [userId, movieId, rating]
 ratings = np.loadtxt('data/ratings.csv', delimiter=',', skiprows=1)
 
 user_ids = ratings[:, 0].astype(int)
 movie_ids = ratings[:, 1].astype(int)
+ratings_vals = ratings[:, 2].astype(np.float32)
 
-# Adjust movie_ids to match available content features
 movie_ids = np.clip(movie_ids, 0, num_movies - 1)
 
-# Get dimensions
 embedding_dim = 64
 content_dim = content_features.shape[1]
 num_users = user_ids.max() + 1
 num_items = movie_ids.max() + 1
 
-# Convert to tensors
 user_tensor = torch.tensor(user_ids, dtype=torch.long)
 item_tensor = torch.tensor(movie_ids, dtype=torch.long)
+ratings_tensor = torch.tensor(ratings_vals, dtype=torch.float32)
 
-# Get item-wise content features
 all_content = torch.tensor(content_features, dtype=torch.float32)
 content_tensor = all_content[item_tensor]
 
-# Create dataset and dataloader
-dataset = NCFDataset(user_tensor, item_tensor, content_tensor)
-dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+# Create dataset and dataloader with larger batch size
+dataset = NCFDataset(user_tensor, item_tensor, content_tensor, ratings_tensor)
+dataloader = DataLoader(dataset, batch_size=128, shuffle=True, pin_memory=True)
 
 # Initialize model
 model = NCFModel(num_users, num_items, embedding_dim, content_dim).to(device)
-
-# Optimizer and loss
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 loss_fn = nn.MSELoss()
 
-# Train function
 def train_ncf_model():
-    epochs = 3  # Reduced from 10 to 3
+    epochs = 3
     for epoch in range(epochs):
         model.train()
         total_loss = 0
-        for user_ids_batch, movie_ids_batch, content_features_batch in dataloader:
-            user_ids_batch = user_ids_batch.to(device)
-            movie_ids_batch = movie_ids_batch.to(device)
-            content_features_batch = content_features_batch.to(device)
+        for user_batch, movie_batch, content_batch, ratings_batch in dataloader:
+            user_batch = user_batch.to(device)
+            movie_batch = movie_batch.to(device)
+            content_batch = content_batch.to(device)
+            ratings_batch = ratings_batch.to(device)
 
             optimizer.zero_grad()
-            predictions = model(user_ids_batch, movie_ids_batch, content_features_batch)
-            loss = loss_fn(predictions, content_features_batch)
+            predictions = model(user_batch, movie_batch, content_batch).squeeze()
+            loss = loss_fn(predictions, ratings_batch)
             loss.backward()
             optimizer.step()
 
@@ -75,9 +68,6 @@ def train_ncf_model():
         avg_loss = total_loss / len(dataloader)
         print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.6f}")
 
-        # Save checkpoint
-        checkpoint_path = f"data/ncf_model_epoch_{epoch + 1}.pt"
-        torch.save(model.state_dict(), checkpoint_path)
+        torch.save(model.state_dict(), f"data/ncf_model_epoch_{epoch + 1}.pt")
 
-# Run training
 train_ncf_model()
