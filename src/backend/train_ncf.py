@@ -9,7 +9,9 @@ from ncf_model import NCFModel
 from dataset import NCFDataset
 from recommender import get_content_features
 
-# Device setup (M3 Mac doesn't support CUDA)
+#This train_ncf program is for devices that do not support CUDA and would require CPU use,for CUDA based machines refer to train_ncf_CUDA.py
+
+# Device setup 
 device = torch.device('cpu')
 
 # Load preprocessed data
